@@ -1,11 +1,13 @@
 # ZKDP — Zero Knowledge Diagnostic Protocol
 
-**Version:** 0.1 (Draft)
+**Version:** 0.2 (Draft)
 **Author:** xADHDx
 **License:** AGPL-3.0
 **Repository:** https://github.com/xADHDx/ZKDP
 **Reference Implementation:** AIWarden — https://github.com/xADHDx/AI-Warden
-**Date:** May 26, 2026
+**Date:** May 27, 2026
+
+---
 
 ## Abstract
 
@@ -13,183 +15,375 @@ ZKDP (Zero Knowledge Diagnostic Protocol) is a protocol designed to eliminate da
 
 ZKDP is AI-agnostic and designed to work across major models including Claude (Sonnet, Opus), GPT, and any API-accessible LLM. Payload sizes are dramatically smaller than raw log transmission, reducing token consumption and improving diagnostic signal-to-noise ratio, without sacrificing reasoning capability or the privacy principles that privacy-focused operators already depend on.
 
+---
+
 ## Problem Statement
 
 Every existing method of AI-assisted infrastructure troubleshooting requires sending real data to an external model — IP addresses, hostnames, file paths, credentials, and raw log content. Privacy-focused operators, self-hosters, and regulated industries have been forced to choose between AI capability and data privacy. ZKDP removes that tradeoff entirely.
 
-Life does not always allow you to be at your desk when something breaks. Automation is not optional — it is essential. The problem is that every existing AI-assisted automation pipeline leaks your infrastructure identity to an external model. ZKDP is the solution. It allows full AI diagnostic capability without a single byte of real infrastructure data ever leaving your network.
-
 Tools like Claude Code, Cursor, and other AI-assisted developer tools run locally but still transmit everything they see — logs, file contents, terminal output, file paths, credentials — to an external API. A local interface is not a privacy guarantee. ZKDP is the privacy layer that sits beneath any AI interface and ensures what reaches the API is never reconstructable back to your infrastructure.
 
-## Core Principle — Everything Is Already Math
-
-Every log ever written by any software on any operating system on any device is doing exactly one thing — recording state transitions. Nothing more.
-
-service started = null to running. connection failed = expected to failed. disk at 90% = normal to warning. user logged in = unauthenticated to authenticated. process crashed = running to null.
-
-This is true for every system that has ever existed. Windows, Linux, Docker, Kubernetes, Raspberry Pi, Cisco routers, IoT devices, cloud instances. Every log line ever written is a thing that was in one state and is now in another state at some point in time.
-
-The software name is a label on top of that transition. The IP address is a label. The username is a label. Strip the labels and what remains is pure state transition data — identical in mathematical structure across every system ever built.
-
-ZKDP does not convert infrastructure into math. It was always math. ZKDP simply stops pretending the human labels on top of that math are necessary for reasoning. They are not. An AI does not need to know it is Navidrome to diagnose a transcode dependency cascade. It needs to see the shape of the failure. The shape is universal. The label is irrelevant.
-
-That last step — making everything mathematical such that an AI can fully troubleshoot without ever knowing what software, OS, or system it is working with — is near impossible. But due to math, somehow possible.
-
-## Theoretical Foundation
-
-ZKDP is grounded in three established pillars of computer science and one novel verification mechanism.
-
-Shannon Information Theory 1948: Information has a measurable quantity independent of its meaning. A failure event carries a specific entropy value regardless of what software produced it or what IP address was involved. ZKDP transmits exactly that information content and nothing else. Identity labels carry zero diagnostic entropy. They are overhead.
-
-State Transition Theory: Every observable system can be modeled as a finite set of states and transitions between them. Failure behavior has mathematical shape that exists independently of identity. A cascade is a cascade. A drain is a drain. These shapes are recognizable to a reasoning system without any identity context.
-
-Zero Knowledge Proofs: A zero knowledge proof allows one party to prove a statement is true to another party without revealing any information about why it is true beyond the truth of the statement itself. ZKDP applies this principle to open-ended diagnostic reasoning. The machine proves to the AI that a specific failure pattern exists. The AI reasons about that pattern and returns a structured response. At no point does the AI hold information sufficient to reconstruct the original data.
-
-Checksum Proof Verification: Every valid ZKDP session token is a number that satisfies a session-specific mathematical property — its digit sum modulo a session-scoped prime equals zero. This property is self-verifying, requires no vault lookup, and is computationally trivial. A real infrastructure value slipping through sanitization will almost certainly fail this proof. The session prime rotates every session and never leaves the local machine. This mechanism was derived from the same mathematical principle used in credit card validation, extended with session-scoped prime rotation for cryptographic strength.
-
-## Universal Compatibility
-
-ZKDP is universally compatible by nature, not by engineering effort. Because every log is a state transition, and state transitions are mathematically identical across all systems, ZKDP works on any infrastructure that produces logs.
-
-Infrastructure: Proxmox, LXC, VMs, bare metal Linux, Docker, Podman, Kubernetes, Windows Server, Raspberry Pi, ARM devices, IoT devices, cloud instances on AWS GCP and Azure.
-
-Log formats: Systemd journald, syslog, rsyslog, Docker logs, Windows Event Log, and any application-specific log format from any software ever written.
-
-AI targets: Claude Sonnet and Opus, GPT-4 and GPT-4o, Gemini, local models via Ollama or LM Studio, and any OpenAI-compatible API endpoint.
-
-The SFL transformation layer is the universal adapter. It ingests any log format and outputs the same mathematical packet structure regardless of source. The AI receives identical ZKDP packets whether the source was a Proxmox LXC, a Windows Server, or a Kubernetes pod. This is the same principle TCP/IP uses — the protocol abstracts the physical medium. ZKDP abstracts infrastructure identity.
-
-## Hardware Constraints
-
-ZKDP is explicitly designed to run within the resource constraints of a standard LXC container on commodity hardware. No component of this protocol requires a GPU, high core count, or large memory allocation. The entire pipeline is designed to run on CPU with a memory footprint under 512MB. This is a first-class design requirement, not an afterthought. A privacy protocol that only runs on expensive hardware is not a protocol for the world — it is a protocol for the privileged.
-
-Recommended minimum LXC allocation: 2 CPU cores, 512MB RAM, 4GB disk.
-Recommended comfortable allocation: 2 CPU cores, 1GB RAM, 8GB disk.
-
-## Token Design
-
-ZKDP tokens are pure integers, not human-readable strings. A token does not contain class information, count information, or any human-readable structure. 192.168.1.57 becomes 9242. xADHDx becomes 3451. /mnt/media2 becomes 7819.
-
-Every valid session token satisfies the following mathematical property: checksum(token) mod session_prime = 0, where checksum is the sum of the token's digits and session_prime is a prime number generated fresh at session start and stored only in the local token vault.
-
-Tokens are self-verifying. At any point in the pipeline, any value can be checked for token validity without a vault lookup. A real value that slipped through sanitization will fail this check with near certainty. The probability of a real infrastructure value accidentally satisfying a session-scoped prime checksum is astronomically small and decreases as prime size increases.
-
-Session primes rotate every session. No prime is ever reused. An attacker holding packets from multiple sessions cannot reconstruct the verification property across sessions.
-
-## 4-Layer Sanitization Pipeline
-
-All collected data passes through four independent verification layers before any transmission occurs. Every layer must pass. Any layer failure aborts transmission entirely. Partial sanitization is treated identically to no sanitization. If uncertain, abort. Always.
-
-Layer 1 — Regex Tokenizer: Every IP address, MAC address, hostname, domain, file path, port, API key, and credential pattern is replaced with a valid session token satisfying the checksum property. The log normalizer runs before this layer, decoding all encodings including unicode, base64, hex, and URL encoding so no encoded value bypasses regex detection.
-
-Layer 2 — Local LLM: A quantized 1B to 3B parameter model running entirely on-device reviews Layer 1 output and catches anything regex missed — contextual PII, semantic identifiers, unusual formats, and values that pattern matching cannot detect. This model never connects to any external service. It runs entirely in local memory within the LXC resource budget.
-
-Layer 3 — Egress Leak Check: A fail-closed verification pass that pattern-matches the full outbound payload against the known PII universe one final time. Any match aborts transmission. Unknown patterns are treated as suspicious not safe. This layer operates independently of Layers 1 and 2 and shares no code with either.
-
-Layer 4 — Checksum Proof Verification: A formal mathematical proof pass. For every value in the outbound packet the following must hold. Given that valid tokens satisfy checksum(V) mod session_prime = 0, and given that session_prime is known only to the local vault, and given that real infrastructure values do not satisfy this property — for all values V in packet P, if checksum(V) mod session_prime = 0 then V is a proven valid token and the packet is mathematically clean. If any V fails then a real value has been detected with near certainty, transmission is aborted, the failure is logged, and the operator is alerted. This layer requires no ML, no heavy compute, and no external calls. It is pure arithmetic running in microseconds on any CPU. It does not search for known bad patterns — it proves the presence of known good ones. The absence of proof is proof of failure. All four layers failing simultaneously on the same value is not a practical attack surface. It is a philosophical one.
-
-## Sequence Formula Language
-
-Sanitized data is transformed into Sequence Formula Language — a mathematical notation that preserves causal and temporal relationships between events without timestamps or real values.
-
-SFL primitives: S(n) is sequence position n. Delta(n1,n2) is relative distance between two events. Sigma(n) is the scale class of that distance. R(n) is recurrence count at position n.
-
-Scale classes: sigma-0 is instant under 1 second. sigma-1 is rapid in seconds. sigma-2 is short in minutes to hours. sigma-3 is medium in hours to days. sigma-4 is long in days to weeks or more.
-
-No real timestamps ever exist in a ZKDP payload. Sequence ordering and scale classes provide all temporal reasoning capability the AI needs without exposing wall-clock time or enabling timestamp correlation attacks.
-
-## Protocol Flow
-
-Step 1 — Local Failure Detection: The local watchdog detects a failure. Local LLM and repair scripts attempt to resolve it automatically. If local resolution fails ZKDP initiates. ZKDP is the last resort before human escalation, not the first response.
-
-Step 2 — Mandatory Snapshot: Before any data is gathered or any action is ever taken, a snapshot of the affected service or instance is taken. This is non-negotiable. No snapshot confirmation equals no execution. Ever. The snapshot provider is environment-aware. Proxmox uses native LXC snapshot via Proxmox API. Docker uses container state snapshot. Bare metal uses targeted config backup via timeshift or equivalent. Snapshots are per-service and per-instance. Never host-level for a container-level repair. Each instance is an isolated blast radius.
-
-Step 3 — Data Gathering: AIWarden gathers all necessary troubleshooting data — logs, failure codes, service states, resource metrics, running services, dependency states. Everything needed to fully understand the failure. Nothing is filtered at this stage. Everything gets collected first.
-
-Step 4 — 4-Layer Sanitization: All collected data passes through the 4-layer sanitization pipeline as defined above. No transmission occurs until all four layers pass.
-
-Step 5 — SFL Transformation: Sanitized data is transformed into SFL vectors. State transitions replace raw log lines. Scale classes replace timestamps. Tokens replace all real values.
-
-Step 6 — Packet Construction: Sanitized mathematically transformed data is assembled into a ZKDP surprise packet. Transmission defaults to single-pass — one complete payload, one AI response, one repair attempt. Round trips are available for complex multi-system failures where the AI requests additional targeted data. Packet types are SPIKE for sudden single-sequence divergence, DRIFT for slow accumulated divergence crossing a cumulative threshold, CASCADE for multiple observables diverging within a sigma-0 window forming a causal chain, DRAIN for monotonic depletion of a finite resource heading toward a hard floor or ceiling, and ANOMALY for unrecognized failure shapes requiring immediate human escalation. Packet format fields are BASE for the baseline version both sides reference, SEQ for a monotonic counter replacing all timestamps, TYPE for failure pattern classification, DIV for predicted versus actual state per observable, SCALE for SFL temporal distance classes, MAG for surprise magnitude from 0 to 1 which gates transmission, and PROJ for depletion projection on DRAIN type only expressed in sigma classes never real time values.
-
-Step 7 — Two Channel Transmission: ZKDP transmits across two strictly separated channels that never merge into a single payload. Channel A carries sanitized event data — the SFL packet with zero real values, all tokens, pure mathematical representation of the failure. Channel B carries anonymous context — non-identifying software metadata only, pre-resolved from the local Service Profile Registry. No real values. No version numbers that could fingerprint. Only semantic class information such as SERVICE_CLASS and KNOWN_ISSUE class and severity. Channel B primes the AI's domain reasoning without revealing identity.
-
-Step 8 — AI Response Constraint: The AI must respond exclusively in ZKDP protocol language. No natural language. No prose. No free text fields. Any response that does not parse as valid ZKDP is rejected entirely and never reaches the repair engine. This is the single most important privacy rule in the protocol. A constrained response format makes inference leakage mathematically impossible. There is no field in the response schema capable of containing a real value. Response format fields are BASE for baseline version, SEQ for sequence number, CONFIDENCE for a score from 0 to 1, ACTION for a whitelisted action against a token, VERIFY for the expected post-action state, and FALLBACK for the snapshot restore instruction if verification fails.
-
-Step 9 — Confidence and Whitelist Gating: Before any repair action executes two gates must both pass. The confidence gate requires the AI confidence score to meet or exceed the configured threshold — below threshold nothing executes. The whitelist gate requires the proposed action to exist on the per-service whitelist maintained locally — if the action is not whitelisted the repair engine cannot execute it regardless of what the AI recommended. Destructive commands do not exist on any whitelist. Ever.
-
-Step 10 — Execute, Verify, and Rollback: The repair action executes against the snapshot-protected service. AIWarden collects post-action state and sends a verification packet. If the AI confirms resolution the repair is committed and the shared baseline updates to reflect the new normal. If the AI determines the repair made things worse automatic rollback triggers — the snapshot restores, state returns to pre-repair condition, and a human alert fires with full context of what was attempted, what the outcome was, and what the current state is.
-
-## Shared Baseline
-
-Both the machine and the AI hold an agreed model of normal. The baseline is established once at session start and referenced by version number in every subsequent packet. It contains the service set, their expected states, the SFL schema version, and the session token map. Neither side re-sends it after establishment. A packet is always a delta against the current baseline. No baseline confirmation equals no packet accepted. A successful repair updates the baseline to reflect the new normal state.
-
-## Surprise Transmission Model
-
-ZKDP only transmits when reality diverges from the baseline prediction. Silence is a valid and expected protocol state meaning everything matches what the AI already believes. A healthy infrastructure generates zero bytes. This is not compression — it is the deliberate decision to transmit only surprise. The unit of transmission is divergence. Low divergence below the MAG threshold does not generate a packet. Cumulative drift that crosses the cumulative threshold generates a DRIFT packet even if no single step crossed the individual threshold, ensuring slow-creeping failures are never silently missed.
-
-## Token Vault
-
-The token vault is the mapping between real infrastructure values and their session-scoped anonymous tokens. It lives exclusively on the local machine. It never leaves the network. It is encrypted at rest using AES-256. Values are decrypted into memory only during active sanitization operations and zeroed from memory immediately after use. Token mappings rotate every session — no token from a previous session is ever reused — defeating long-term correlation attacks. The vault is single-writer with mutex locking to prevent race conditions. The session prime lives in the vault and is the most sensitive value in the entire system.
-
-## Session Token Rotation
-
-Every ZKDP session generates a completely fresh token map and a completely fresh session prime. A token from session 1 is not valid in session 2. An attacker holding packets from multiple sessions cannot correlate tokens across sessions because both the mapping and the verification property change every time. This defeats statistical correlation attacks against long-running infrastructure monitoring.
-
-## Canary Verification System
-
-Before any live data is ever processed AIWarden plants synthetic canary values in a test payload — values that look exactly like real IPs, API keys, hostnames, and credentials but are not. The sanitizer runs against the canary payload. Every single canary must be caught, tokenized, and pass the checksum proof. If even one canary passes through unsanitized the system fails and refuses to proceed until the issue is resolved. The canary verification process runs on completely separate code from the sanitizer. The thing checking the sanitizer shares no code with the sanitizer. This is the mathematical proof that the system works before it ever touches real data.
-
-## Service Profile Registry
-
-The Service Profile Registry is a locally-maintained auto-updating knowledge base that resolves the AI's generic structural hypotheses into service-specific actionable guidance without ever revealing service identity to the AI. When the AI concludes that a dependency in the codec class is missing the registry resolves that locally to the specific package name and the correct install command. The AI provided the reasoning. The registry provided the identity. They never meet inside a payload. The registry updates itself by pulling from public bug trackers, CVE feeds, and release notes on a schedule — an outbound read of public data that reveals nothing about what software you run.
-
-## Unknown Failure Behavior
-
-An unknown bug still produces math. It still causes state transitions. It still generates divergence from baseline. It still has a shape. The AI still reasons over the causal structure of what happened even if it has never encountered that exact failure pattern. If the packet does not fit any known type it is classified as ANOMALY. On ANOMALY a snapshot is taken immediately, the packet is sent to the AI with the ANOMALY flag for best-effort reasoning, and a human alert fires. The operator is never left with a silent failure. Worst case outcome is AIWarden reporting it does not recognize this pattern and escalating to human review with full mathematical context preserved.
-
-## Known Attack Surfaces
-
-A 300 billion parameter AI model reviewed this protocol and identified the following as the primary attack surface: information gets reconstructed across time, tools, and composition. This is the most important external feedback this protocol has received and it is documented here as a first-class concern.
-
-Temporal reconstruction: Statistical patterns in mathematical payloads across many sessions could fingerprint a specific infrastructure stack even without real values. Mitigated by session token rotation, session prime rotation, and payload variance injection — controlled noise introduced into non-critical fields to defeat statistical fingerprinting without affecting AI reasoning.
-
-Cross-tool reconstruction: ZKDP sanitizes what reaches the AI API. Other tools in the stack may also communicate with AI systems without ZKDP. Privacy guarantees break at those seams. Mitigated by defining ZKDP scope boundaries explicitly and documenting that the privacy guarantee applies only to traffic that passes through the ZKDP pipeline.
-
-Compositional reconstruction: Two packets individually reveal nothing. Multiple packets composed across sessions may reveal more than any single packet. This is how anonymized datasets get de-anonymized in the real world. Mitigated by payload variance injection, session token and prime rotation, and strict Channel A and Channel B separation.
-
-## Failure Modes and Mitigations
-
-Race condition on startup: sanitizer must report READY before the watchdog collects anything. Hard gate, no exceptions.
-
-Sanitizer crash mid-process: any layer failure results in full abort. Partial sanitization equals no sanitization.
-
-New PPI pattern not in config: filesystem scanner continuously updates the token vault. Egress check flags unknown patterns as suspicious not safe.
-
-Log encoding edge cases: log normalizer decodes all encodings before sanitization runs.
-
-Token vault desync: vault writes are atomic, single-writer, mutex locked.
-
-Canary test bypass: canary verification runs on completely separate code from the sanitizer.
-
-AI response inference leakage: eliminated by the AI Response Constraint. No field in the response schema can contain a real value.
-
-Session token correlation: eliminated by per-session token and prime rotation.
-
-Memory tool leakage: memory entries audited on every session start. Any entry containing pattern-matched PII flagged for manual review before the session proceeds.
-
-Checksum collision: the probability of a real value satisfying the session prime checksum is inversely proportional to the size of the prime. Minimum prime size is enforced by the vault generator to keep collision probability below one in ten billion per session.
-
-## Reference Implementation
-
-AIWarden is the reference implementation of ZKDP, built for self-hosted homelab infrastructure on Proxmox. It implements every component of this specification including the watchdog daemon, 4-layer sanitization pipeline, SFL transformation engine, two-channel packet builder, confidence and whitelist gating, snapshot integration, canary verification system, Service Profile Registry, and token vault with session prime rotation.
-
-Repository: https://github.com/xADHDx/AI-Warden
-
-## License
-
-ZKDP is published under the GNU Affero General Public License v3.0. Any implementation of this protocol used in a networked product or service must open source that implementation under the same license. No exceptions.
+The compute offload model is intentional. The local machine does cheap work — sanitization, tokenization, SFL transformation, registry lookup. The AI does expensive work — pattern recognition, causal reasoning, diagnostic inference. No GPU required locally. Designed to run on a 2-core LXC with 512MB RAM on commodity hardware.
 
 ---
 
-ZKDP was designed and authored by xADHDx in collaboration with Claude (Anthropic) on May 26, 2026. This document constitutes the original specification and establishes prior art for the Zero Knowledge Diagnostic Protocol.
+## Core Principle — Everything Is Already Math
+
+Every log ever written by any software on any operating system on any device is doing exactly one thing — recording state transitions.
+
+service started = null to running. connection failed = expected to failed. disk at 90% = normal to warning. user logged in = unauthenticated to authenticated. process crashed = running to null.
+
+This is true for every system that has ever existed. Windows, Linux, Docker, Kubernetes, Raspberry Pi, Cisco routers, IoT devices, cloud instances. Every log line is a thing that was in one state and is now in another state.
+
+The software name is a label on top of that transition. The IP address is a label. The username is a label. Strip the labels and what remains is pure state transition data — identical in mathematical structure across every system ever built.
+
+ZKDP does not convert infrastructure into math. It was always math. ZKDP stops pretending the human labels are necessary for reasoning. They are not. An AI does not need to know it is Navidrome to diagnose a transcode dependency cascade. It needs to see the shape of the failure. The shape is universal. The label is irrelevant.
+
+That last step — making everything mathematical such that an AI can fully troubleshoot without ever knowing what software, OS, or system it is working with — is near impossible. But due to math, somehow possible.
+
+---
+
+## Theoretical Foundation
+
+Shannon Information Theory 1948: Information has a measurable quantity independent of its meaning. A failure event carries a specific entropy value regardless of what software produced it. ZKDP transmits exactly that information content and nothing else. Identity labels carry zero diagnostic entropy.
+
+State Transition Theory: Every observable system can be modeled as a finite set of states and transitions between them. Failure behavior has mathematical shape that exists independently of identity. A cascade is a cascade. A drain is a drain. These shapes are recognizable to a reasoning system without any identity context.
+
+Zero Knowledge Proof Principles: ZKDP applies zero knowledge principles to open-ended diagnostic reasoning. The machine proves to the AI that a specific failure pattern exists. The AI reasons about that pattern and returns a structured response. At no point does the AI hold information sufficient to reconstruct the original data. Note: ZKDP is not a formal cryptographic ZKP system. It is an identity-minimized diagnostic abstraction system that applies zero knowledge principles at the protocol level.
+
+BLAKE3 Keyed Verification: Every valid ZKDP session token is verified using a BLAKE3 keyed hash with the session prime as the key. This provides computationally infeasible forgery resistance. The session prime rotates every session and never leaves the local machine.
+
+Universal Error Taxonomy: Every error in every system maps to one or a combination of seven fundamental categories: resource exhaustion, dependency failure, state violation, timeout, permission violation, data corruption, and concurrency violation. These categories are universal because they describe fundamental constraints of computation itself, not specific software.
+
+---
+
+## ZKDP Vocabulary and Terminology
+
+This section defines every term used in the ZKDP protocol. All implementations must use these terms consistently.
+
+### Packet Types
+
+SURPRISE packet — the primary outbound transmission unit. Carries sanitized SFL event data from the local machine to the AI. Never contains real values. Always contains tokens.
+
+CONTEXT packet — the Channel B transmission unit. Carries anonymous ontology IDs describing service class, known issue class, and fix class. Never contains human-readable labels. Never contains real values.
+
+RESPONSE packet — the AI reply. Must be in ZKDP protocol language only. No prose. No natural language. Any response that does not parse as valid ZKDP is rejected and never reaches the repair engine.
+
+### Failure Classifications
+
+SPIKE — sudden single-sequence divergence. One observable deviates from baseline in a single sequence step. Characteristic of crashes, unexpected restarts, discrete failures.
+
+DRIFT — slow accumulated divergence crossing a cumulative threshold. No single step is anomalous but the cumulative deviation is. Characteristic of memory leaks, gradual degradation, slow resource exhaustion.
+
+CASCADE — multiple observables diverging within a σ0 window forming a causal chain. One failure triggers others in near-zero time. Characteristic of dependency failures propagating downstream.
+
+DRAIN — monotonic depletion of a finite resource heading toward a hard floor or ceiling. Carries a PROJ field with depletion projection. Characteristic of disk fill, memory climb, connection pool exhaustion. The only packet type that fires before anything has actually failed.
+
+ANOMALY — unrecognized failure shape that does not fit any known classification. Triggers immediate snapshot, best-effort AI reasoning, and mandatory human escalation.
+
+### SFL Primitives
+
+S(n) — sequence position n. Replaces timestamps. Ordinal only. No wall-clock time ever exists in a ZKDP payload.
+
+Delta(n1,n2) — relative distance between two sequence positions. Unitless. Used to compute scale class.
+
+sigma — scale class of a temporal distance. Five classes only:
+sigma-0 = instant under 1 second
+sigma-1 = rapid in seconds
+sigma-2 = short in minutes to hours
+sigma-3 = medium in hours to days
+sigma-4 = long in days to weeks or more
+
+R(n) — recurrence count at sequence position n. How many times this event pattern has occurred.
+
+### Packet Fields
+
+BASE — baseline version identifier. Both machine and AI reference the same baseline. A packet without a matching baseline is rejected.
+
+SEQ — monotonic integer counter. Replaces all timestamps. Provides ordering without exposing wall-clock time.
+
+TYPE — failure classification. One of SPIKE, DRIFT, CASCADE, DRAIN, ANOMALY.
+
+DIV — divergence field. Contains predicted state P versus actual state A for each observable. The core diagnostic payload.
+
+SCALE — array of sigma classes corresponding to each divergence event. Provides temporal relationship without real time values.
+
+MAG — surprise magnitude. Float from 0 to 1. Gates transmission — below configured threshold no packet fires.
+
+PROJ — projection field. DRAIN packets only. Contains floor, rate, and ttf expressed in sigma class never real time values.
+
+### System Components
+
+Token vault — local mapping between real infrastructure values and session-scoped anonymous tokens. Lives exclusively on local machine. Never transmitted. AES-256 encrypted at rest. Single-writer mutex locked.
+
+Session prime — cryptographically random prime number generated fresh at each session start. Used as BLAKE3 verification key. Never transmitted. Rotates every session.
+
+Checksum proof — the Layer 4 mathematical verification that every value leaving the machine is a registered session token and not a real value. A valid token satisfies a session-prime-scoped verification property that real infrastructure values do not. In the reference implementation this property is a BLAKE3 keyed hash, keyed by the session prime, computed at tokenization and re-verified at egress: BLAKE3(token, session_prime) must equal the stored hash for that token or transmission aborts. Requires no ML, no external calls, runs in microseconds on any CPU. It does not search for known-bad patterns — it proves the presence of known-good ones. The absence of proof is proof of failure.
+
+Baseline — agreed model of normal shared between machine and AI. Established once at session start. Referenced by version number. Never re-sent. Updated after every successful repair.
+
+Surprise transmission model — ZKDP transmits only when reality diverges from baseline. Silence is a valid protocol state. A healthy infrastructure generates zero bytes.
+
+Channel A — sanitized event data channel. Carries SURPRISE packets with zero real values, all tokens.
+
+Channel B — anonymous context channel. Carries CONTEXT packets with ontology IDs only. Never merges with Channel A.
+
+Service Profile Registry — locally maintained knowledge base mapping ontology IDs to real service information. Never transmitted. Resolves AI generic hypotheses into service-specific repair actions locally.
+
+Ontology IDs — numeric identifiers replacing human-readable semantic labels in Channel B. SC (service class), KI (known issue), FC (fix class). Mappings live only in local registry.
+
+Canary values — synthetic PII-shaped values injected into test payloads before any live data is processed. Every canary must be caught and tokenized. Any canary passing through unsanitized halts the system.
+
+Whitelist — per-service list of permitted repair actions. AI RESPONSE actions validated against whitelist before execution. Actions not on whitelist cannot execute regardless of AI recommendation. Destructive commands are never on any whitelist.
+
+### Transmission Decisions
+
+SAFE — token carries no identity risk. Passes through without tokenization.
+
+SANITIZE — value requires transformation. Passes to tokenizer.
+
+TOKENIZE — value is confirmed PII. Replaced with session token.
+
+ESCALATE — value is ambiguous. Passes to LLM auditor in Layer 2.
+
+---
+
+## ZKDP Protocol Grammar
+
+Formal grammar for all packet types. All implementations must conform.
+
+SURPRISE PACKET:
+ZKDP/1.0 SURPRISE
+BASE: v[INTEGER]
+SEQ: [INTEGER]
+TYPE: SPIKE|DRIFT|CASCADE|DRAIN|ANOMALY
+MAG: [0.0-1.0]
+DIV: {
+  S([n]): E([TOKEN], [EVENT_TYPE]) = { P=[STATE], A=[STATE] (, KEY=VALUE)* }
+}
+SCALE: [sigma-n, ...]
+DRAIN: { observable: [TOKEN], floor: [FLOAT], rate: [+/-FLOAT]/sigma, ttf: sigma-n }
+
+EVENT_TYPE values: BIND, AUTH, STREAM, TRANSCODE, SCAN, MEM, THROTTLE, DB, IMPORT, EXPORT, START, STOP, RESTART, CONNECT, DISCONNECT
+
+STATE values: +1, -1, null, WARN, [FLOAT]
+
+CONTEXT PACKET:
+ZKDP/1.0 CONTEXT
+BASE: v[INTEGER]
+SC: [INTEGER]
+KI: [INTEGER]
+FC: [INTEGER]
+
+RESPONSE PACKET:
+ZKDP/1.0 RESPONSE
+BASE: v[INTEGER]
+SEQ: [INTEGER]
+CONFIDENCE: [0.0-1.0]
+ACTION_VECTOR: [
+  { ACTION: [ACTION_TYPE], TARGET: [TOKEN], VERIFY: { [FIELD]: [STATE] }, ... }
+]
+VERIFY_CONDITION: { [FIELD]: [STATE], ... }
+FAIL_CONDITION: { [FIELD]: [STATE], ... }
+FALLBACK: { ACTION: SNAPSHOT_ROLLBACK, TRIGGER: any_fail_condition }
+
+ACTION_TYPE values: RESTART, REINSTALL, RECLAIM, ISOLATE, RESET, REDUCE, VERIFY, SNAPSHOT_ROLLBACK
+
+---
+
+## Layer 2 — Three-Signal Context Sanitizer
+
+Layer 2 uses three deterministic signals combined into a risk score. The LLM fires only on ESCALATE decisions — rare exception handler, not primary scanner.
+
+Signal 1 — Vocabulary Classifier
+Checks each token against known-safe system vocabulary. Output: VOCAB_CLASS in {SYSTEM, UNKNOWN, MIXED}. Known safe includes Linux system terms, log level words, HTTP method words, common service verbs, hardware interface names, standard error codes. This signal is noise reduction only — not a safety decision alone.
+
+Signal 2 — Role Classifier
+Determines structural role of each token. Output: ROLE in {KEY, VALUE, METRIC, EVENT, CONTROL}.
+KEY — appears before equals sign or colon
+VALUE — appears after equals sign or colon
+METRIC — numeric value with unit context
+EVENT — action or state descriptor
+CONTROL — protocol or format token
+Role is the strongest signal. Identity risk depends heavily on structural role.
+
+Signal 3 — Source Context Classifier
+Classifies log origin. Output: SOURCE_CLASS in {AUTH, SYSTEM, APP, NETWORK, UNKNOWN}.
+AUTH — ssh, pam, sudo, login, authentication keywords
+SYSTEM — kernel, systemd, cgroup, memory, cpu keywords
+APP — application-specific patterns
+NETWORK — nginx, proxy, firewall, connection keywords
+UNKNOWN — unclassifiable
+
+Risk Scoring:
+RISK_SCORE = f(VOCAB_CLASS, ROLE, SOURCE_CLASS, entropy(token), uniqueness(token))
+
+Weights:
+ROLE=VALUE: +0.4
+VOCAB_CLASS=UNKNOWN: +0.3
+SOURCE_CLASS=AUTH: +0.2
+entropy above 3.5 bits/char: +0.2
+token appears only once in log: +0.1
+
+Thresholds:
+RISK_SCORE below 0.3 — SAFE
+0.3 to 0.6 — SANITIZE
+0.6 to 0.8 — TOKENIZE
+0.8 and above — ESCALATE
+
+LLM Auditor: fires only on ESCALATE. Sends flagged token plus surrounding context to local Ollama. Binary question only — is this PII. If yes, tokenize. If LLM fails or times out, tokenize anyway. Fail closed.
+
+---
+
+## 4-Layer Sanitization Pipeline
+
+Layer 1 — Regex Tokenizer: deterministic pattern matching for all known PII shapes. Log normalizer decodes URL encoding, base64, and hex before regex runs. Date and time values protected and passed to SFL transformer.
+
+Layer 2 — Three-Signal Context Sanitizer: vocabulary, role, and source context signals combine into risk score. SAFE, SANITIZE, TOKENIZE, or ESCALATE per token. LLM fires only on ESCALATE. Entirely on-device.
+
+Layer 3 — Egress Leak Check: fail-closed final verification. Pattern-matches complete outbound payload against full known PII universe. Any match aborts. Unknown patterns treated as suspicious. Shares no code with Layers 1 or 2.
+
+Layer 4 — BLAKE3 Proof Verification: for every value in outbound packet, BLAKE3(token, session_prime) must match stored hash. Any failure aborts. Pure arithmetic. No ML. No external calls. Microseconds on any CPU.
+
+---
+
+## Universal Compatibility
+
+Infrastructure: Proxmox, LXC, VMs, bare metal Linux, Docker, Podman, Kubernetes, Windows Server, Raspberry Pi, ARM, IoT, AWS, GCP, Azure.
+
+Log formats: journald, syslog, rsyslog, Docker logs, Windows Event Log, any application log format.
+
+AI targets: Claude, GPT-4, Gemini, Ollama, LM Studio, any OpenAI-compatible endpoint.
+
+---
+
+## Hardware Constraints
+
+Minimum: 2 CPU cores, 512MB RAM, 4GB disk.
+Comfortable: 2 CPU cores, 1GB RAM, 8GB disk.
+No GPU required. No enterprise hardware required.
+
+---
+
+## Protocol Flow
+
+Step 1 — Local Failure Detection: watchdog detects failure. Local repair scripts attempt resolution. ZKDP initiates only if local resolution fails.
+
+Step 2 — Mandatory Snapshot: snapshot taken before any data gathered or any action executed. No snapshot confirmation equals no execution. Ever. Per-service only. Never host-level.
+
+Step 3 — Data Gathering: all logs, failure codes, service states, resource metrics, dependency states collected. Nothing filtered at this stage.
+
+Step 4 — 4-Layer Sanitization: all data passes through all four layers. No transmission until all four pass.
+
+Step 5 — SFL Transformation: state transitions replace raw log lines. sigma classes replace timestamps. Tokens replace all real values.
+
+Step 6 — Packet Construction: single-pass default. Round trips available for complex failures. Packet type determined by failure shape.
+
+Step 7 — Two-Channel Transmission: Channel A (SURPRISE) and Channel B (CONTEXT) transmitted separately. Never merged. Channel B uses ontology IDs only.
+
+Step 8 — AI Response Constraint: AI responds in RESPONSE packet format only. No prose. Non-compliant responses rejected before reaching repair engine.
+
+Step 9 — Confidence and Whitelist Gating: CONFIDENCE must meet threshold. ACTION must exist on per-service whitelist. Both gates must pass.
+
+Step 10 — Execute, Verify, Rollback: repair executes. Verification packet sent. Success updates baseline. Failure triggers automatic rollback, snapshot restore, human alert.
+
+---
+
+## Shared Baseline
+
+Established once at session start. Referenced by version number in every packet. Neither side re-sends after establishment. Successful repair updates baseline.
+
+---
+
+## Surprise Transmission Model
+
+Transmits only on divergence from baseline. Silence means healthy. A healthy infrastructure generates zero bytes. Cumulative drift tracked to prevent slow failures from being silently missed.
+
+---
+
+## Token Vault
+
+Lives exclusively on local machine. Never transmitted. AES-256 encrypted at rest. Values zeroed from memory immediately after use. Single-writer mutex locked. Session prime is the most sensitive value in the system.
+
+---
+
+## Session Token Rotation
+
+Every session generates fresh token map and fresh session prime. No token or prime reused across sessions. Defeats statistical correlation attacks.
+
+---
+
+## Canary Verification System
+
+Synthetic canary values injected into test payload before live data processed. Every canary must be caught and pass BLAKE3 verification. Any canary passing through undetected halts the system. Canary code shares nothing with sanitizer code.
+
+---
+
+## Service Profile Registry
+
+Locally maintained. Never transmitted. Never published. Maps ontology IDs to real service information and repair actions. AI provides generic structural reasoning. Registry provides identity-specific resolution. They never meet in a payload.
+
+---
+
+## Unknown Failure Behavior
+
+Unknown bugs still produce state transitions. Still generate divergence. Still have a shape. ANOMALY classification: snapshot taken immediately, packet sent to AI with ANOMALY flag, human alert fired.
+
+---
+
+## Known Attack Surfaces
+
+A 300 billion parameter AI model reviewed this protocol and identified the primary attack surface as information reconstructed across time, tools, and composition.
+
+Temporal reconstruction: mitigated by session token rotation, session prime rotation, payload variance injection.
+
+Cross-tool reconstruction: ZKDP privacy guarantee applies only to traffic passing through the ZKDP pipeline.
+
+Compositional reconstruction: mitigated by payload variance injection, session rotation, strict Channel A and B separation.
+
+Channel B inference: numeric ontology IDs replace all human-readable labels. Mapping lives in local registry only.
+
+Structural fingerprinting: unique failure topology can fingerprint infrastructure over time. Partially mitigated by payload variance injection. Acknowledged as an unsolved problem at the intersection of diagnostic utility and privacy.
+
+---
+
+## Failure Modes and Mitigations
+
+Race condition on startup: sanitizer reports READY before watchdog collects. Hard gate.
+
+Sanitizer crash mid-process: full abort. Partial sanitization equals no sanitization.
+
+New PII pattern not in config: filesystem scanner continuously updates vault. Egress check flags unknown as suspicious.
+
+Log encoding edge cases: normalizer decodes all encodings before sanitization.
+
+Token vault desync: atomic writes, single-writer, mutex locked.
+
+Canary bypass: separate codebase from sanitizer. No shared code.
+
+AI response leakage: eliminated by response constraint. No field in response schema can contain real values.
+
+Session correlation: eliminated by per-session rotation.
+
+Memory tool leakage: memory entries audited on session start. PII-matching entries flagged for manual review.
+
+BLAKE3 collision: computationally infeasible with session prime as key.
+
+---
+
+## Reference Implementation
+
+AIWarden — self-hosted homelab infrastructure watchdog on Proxmox.
+Repository: https://github.com/xADHDx/AI-Warden
+
+Components: watchdog daemon, 4-layer sanitization pipeline, SFL transformation engine, two-channel packet builder, confidence and whitelist gating, snapshot integration, canary verification, Service Profile Registry, token vault with session prime and BLAKE3 verification.
+
+---
+
+## License
+
+AGPL-3.0. Any implementation of this protocol used in a networked product or service must open source that implementation under the same license. No exceptions.
+
+---
+
+ZKDP was designed and authored by xADHDx in collaboration with Claude (Anthropic) on May 26-27, 2026. This document constitutes the original specification and establishes prior art for the Zero Knowledge Diagnostic Protocol.
