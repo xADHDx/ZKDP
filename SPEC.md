@@ -259,8 +259,8 @@ AI targets: Claude, GPT-4, Gemini, Ollama, LM Studio, any OpenAI-compatible endp
 
 ## Hardware Constraints
 
-Minimum: 2 CPU cores, 512MB RAM, 4GB disk.
-Comfortable: 2 CPU cores, 1GB RAM, 8GB disk.
+Minimum: 2 CPU cores, 2GB RAM, 16GB disk.
+Comfortable: 4 CPU cores, 4GB RAM, 32GB disk.
 No GPU required. No enterprise hardware required.
 
 ---
